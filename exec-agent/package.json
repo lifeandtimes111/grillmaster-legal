@@ -1,0 +1,37 @@
+{
+  "name": "exec-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A personal executive-assistant agent: Claude Agent SDK brain, Telegram surface, scheduled routines.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "cli": "tsx src/surfaces/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "auth:google": "tsx scripts/google-auth.ts",
+    "routine": "tsx scripts/run-routine.ts",
+    "install:daemon": "bash scripts/install-daemon.sh",
+    "whoami": "tsx scripts/telegram-whoami.ts",
+    "test": "tsx test/smoke.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.259",
+    "dotenv": "^17.4.2",
+    "googleapis": "^178.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "node-cron": "^4.6.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^26.4.1",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
