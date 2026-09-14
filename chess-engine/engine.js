@@ -594,7 +594,7 @@
     evaluate() {
       const b = this.board;
       let mg = 0, eg = 0, phase = 0;
-      let wBishops = 0, bBishops = 0, nwp = 0, nbp = 0, nwr = 0, nbr = 0;
+      let wBishops = 0, bBishops = 0, nwp = 0, nbp = 0, nwr = 0, nbr = 0, wMat = 0, bMat = 0;
       const wPawnFiles = EV.wPawnFiles, bPawnFiles = EV.bPawnFiles;
       const wPawns = EV.wPawns, bPawns = EV.bPawns, wRooks = EV.wRooks, bRooks = EV.bRooks;
       wPawnFiles.fill(0); bPawnFiles.fill(0);
@@ -605,12 +605,12 @@
         const t = typeOf(p), i = sq64(s);
         phase += PHASE_INC[t];
         if (colorOf(p) === WHITE) {
-          mg += MG_TABLE[p][i]; eg += EG_TABLE[p][i];
+          mg += MG_TABLE[p][i]; eg += EG_TABLE[p][i]; wMat += MG_VALUE[t];
           if (t === PAWN) { wPawnFiles[fileOf(s)]++; wPawns[nwp++] = s; }
           else if (t === BISHOP) wBishops++;
           else if (t === ROOK) wRooks[nwr++] = s;
         } else {
-          mg -= MG_TABLE[p][i]; eg -= EG_TABLE[p][i];
+          mg -= MG_TABLE[p][i]; eg -= EG_TABLE[p][i]; bMat += MG_VALUE[t];
           if (t === PAWN) { bPawnFiles[fileOf(s)]++; bPawns[nbp++] = s; }
           else if (t === BISHOP) bBishops++;
           else if (t === ROOK) bRooks[nbr++] = s;
@@ -652,11 +652,25 @@
       const mob = this.sliderMobility(WHITE) - this.sliderMobility(BLACK);
       mg += 2 * mob; eg += 3 * mob;
 
+      // mop-up: with a decisive material edge against a side with no pawns, drive
+      // the defending king to the edge and bring our king closer (makes mates findable)
+      if (nbp === 0 && wMat - bMat >= 400) eg += this.mopUp(WHITE);
+      else if (nwp === 0 && bMat - wMat >= 400) eg -= this.mopUp(BLACK);
+
       if (phase > TOTAL_PHASE) phase = TOTAL_PHASE;
       let score = ((mg * phase) + (eg * (TOTAL_PHASE - phase))) / TOTAL_PHASE;
       // tempo
       score += 10 * (this.side === WHITE ? 1 : -1);
       return Math.round(this.side === WHITE ? score : -score);
+    }
+
+    mopUp(strong) {
+      const k = this.kingSq[strong], e = this.kingSq[strong ^ 8];
+      if (k < 0 || e < 0) return 0;
+      const ef = fileOf(e), er = rankOf(e);
+      const centerDist = Math.max(Math.abs(ef - 3.5), Math.abs(er - 3.5)) - 0.5;   // 0..3
+      const kingDist = Math.max(Math.abs(fileOf(k) - ef), Math.abs(rankOf(k) - er));  // 1..7
+      return Math.round(30 * centerDist + 12 * (7 - kingDist));
     }
 
     shield(side) {

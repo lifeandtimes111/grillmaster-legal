@@ -98,6 +98,19 @@
   .arrows .ponder line { stroke-dasharray: 2 1.6; opacity: 0.55; stroke-width: 1.6; }
   .arrows .ponder polygon { opacity: 0.55; }
 
+  .ghost { position: absolute; width: 12.5%; height: 12.5%; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 3;
+           transition: transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1); will-change: transform; }
+  .ghost .piece { filter: drop-shadow(0 6px 6px rgba(0,0,0,0.35)); }
+  .sq .piece.fade { opacity: 0; transition: opacity 0.5s ease 0.25s; }
+  .sq.trail { box-shadow: inset 0 0 0 100vmax var(--sq-from); }
+  .caption { position: absolute; left: 50%; bottom: 4%; transform: translateX(-50%); max-width: 92%; padding: 8px 14px; border-radius: 10px; z-index: 4;
+             background: rgba(20, 24, 22, 0.86); color: #F4F4EF; font-family: var(--font-display); font-size: clamp(14px, 2.6vw, 20px); font-weight: 700; line-height: 1.25;
+             text-align: center; text-wrap: balance; box-shadow: 0 6px 20px rgba(0,0,0,0.3); opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+  .caption.show { opacity: 1; }
+  .caption small { display: block; font-family: var(--font-body); font-weight: 400; font-size: 0.78em; opacity: 0.85; margin-top: 2px; }
+  @media (prefers-reduced-motion: reduce) { .ghost { transition-duration: 0.01s; } .sq .piece.fade { transition-duration: 0.01s; } }
+  .board-wrap.playing .arrows { display: none; }
+  .btn.watch { position: relative; }
   .dropzone { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px;
               background: var(--accent-soft); border: 3px dashed var(--accent); color: var(--ink); font-family: var(--font-display); font-size: 20px; font-weight: 700; }
   .board-wrap.dragover .dropzone { display: flex; }
@@ -179,6 +192,7 @@
           <svg class="arrows" id="arrows" viewBox="0 0 80 80" aria-hidden="true">
             <defs><marker id="head" markerWidth="4" markerHeight="4" refX="2.2" refY="2" orient="auto"><polygon points="0,0 4,2 0,4"></polygon></marker></defs>
           </svg>
+          <div class="caption" id="caption" aria-live="polite"></div>
           <div class="dropzone">Drop the picture to read it</div>
         </div>
       </div>
@@ -218,7 +232,8 @@
         <div class="pv" id="pv"></div>
         <div class="stats" id="stats"></div>
         <div class="row">
-          <button type="button" class="btn primary" id="play" disabled>Play this move</button>
+          <button type="button" class="btn primary watch" id="watch" disabled>Watch the line</button>
+          <button type="button" class="btn" id="play" disabled>Play this move</button>
           <button type="button" class="btn" id="undo" disabled>Undo</button>
           <span class="spacer"></span>
           <label class="inline" for="think">Think<select class="ctl" id="think"><option value="1000">1 s</option><option value="3000" selected>3 s</option><option value="8000">8 s</option><option value="20000">20 s</option></select></label>

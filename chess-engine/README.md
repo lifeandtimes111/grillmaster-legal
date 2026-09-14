@@ -21,10 +21,23 @@ else, set the position up with the on-page editor or paste a FEN.
      late-move reductions, check extension, killer and history move ordering;
    - quiescence search with delta pruning;
    - tapered middlegame/endgame evaluation: piece-square tables, bishop pair,
-     passed/isolated/doubled pawns, rook open files, king pawn shield, slider mobility.
+     passed/isolated/doubled pawns, rook open files, king pawn shield, slider mobility,
+     and a mop-up term that drives a bare king to the edge in won endgames.
 
    It searches about half a million nodes per second in a browser and typically reaches
    depth 12 to 16 with the default three-second think time. Longer think times search deeper.
+
+## Watching the line
+
+"Watch the line" animates the engine's principal variation on the board: each piece glides
+to its square with a caption ("1. Kd2 — White's king goes to d2"), captured pieces fade, and
+the board returns to the analysed position at the end. The page auto-plays it once for the
+position it opens with.
+
+A position can be linked directly: `index.html#fen=<FEN>&flip=1&play=1` loads the FEN,
+shows the board from Black's side if `flip=1`, and starts the walkthrough after analysis if
+`play=1`. The page keeps the hash updated as the position changes, so the address bar is
+always a shareable link.
 
 ## Files
 
@@ -34,12 +47,14 @@ else, set the position up with the on-page editor or paste a FEN.
 | `app.js` | Board rendering, editor, picture reading, engine wiring |
 | `engine.js` | The chess engine (worker, browser global, and Node module) |
 | `test/perft.js` | Move-generation and tactics tests |
+| `test/consistency.js` | Make/unmake, hash, notation round trips, evaluation symmetry, endgame self-play |
 
 ## Tests
 
 ```
 node test/perft.js          # perft on 7 reference positions + tactical puzzles (~30 s)
-node test/perft.js --deep   # deeper perft counts and slower puzzles
+node test/perft.js --deep   # deeper perft counts and slower puzzles (~90 s)
+node test/consistency.js    # 23k random plies of make/unmake and hash checks, mirror-symmetry, KR/KQ vs K mates
 ```
 
 ## Running locally

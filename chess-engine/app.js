@@ -5,7 +5,8 @@
   const $ = (id) => document.getElementById(id);
   const FILES = 'abcdefgh';
   const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
-  const SAMPLE_FEN = '2rr3k/pp3pp1/1nnqbN1p/3pN3/2pP4/2P3Q1/PPB4P/R4RK1 w - - 0 1';
+  // Position shown when the page opens without a #fen= link: the walkthrough plays automatically.
+  const SAMPLE_FEN = '3kNr2/pp2bQ2/2p1P2p/6q1/4B1b1/4P3/PPP5/2K2R2 w - - 0 1';
 
   // ------------------------------------------------------------------ state
   const state = {
@@ -302,12 +303,15 @@
   function thinkMs() { return +$('think').value; }
   let inlineSearch = null;
   function analyze() {
+    if (walk.running) stopWalk();
+    $('watch').disabled = true;
     const v = revalidate();
     render();
     state.searchId++;
     if (!v.ok) { renderVerdict(null, true); $('bestmove').textContent = '—'; $('score').innerHTML = '<span class="who">Fix the position first</span>'; $('play').disabled = true; $('stop').disabled = true; return; }
     if (v.status === 'checkmate' || v.status === 'stalemate' || v.status === 'fifty-move' || v.status === 'insufficient') { renderTerminal(v.status); $('play').disabled = true; $('stop').disabled = true; return; }
     state.searching = true;
+    writeHash();
     $('stop').disabled = false; $('play').disabled = true; $('analyze').disabled = true;
     renderVerdict(null, false);
     $('progress').style.width = '2%';
@@ -331,9 +335,10 @@
     state.searching = false;
     $('stop').disabled = true; $('analyze').disabled = false;
     $('progress').style.width = '100%';
-    if (result && result.bestSan) { renderVerdict(result, true); $('play').disabled = false; }
-    else { renderVerdict(null, true); $('play').disabled = true; }
+    if (result && result.bestSan) { renderVerdict(result, true); $('play').disabled = false; $('watch').disabled = false; if (autoWatch) { autoWatch = false; setTimeout(watchLine, 400); } }
+    else { renderVerdict(null, true); $('play').disabled = true; $('watch').disabled = true; }
   }
+  let autoWatch = false;
   function stopSearch() {
     if (!state.searching) return;
     state.searchId++;
@@ -341,7 +346,7 @@
     if (worker) { worker.terminate(); worker = null; }
     const r = state.result;
     $('stop').disabled = true; $('analyze').disabled = false;
-    if (r && r.bestSan) { renderVerdict(r, true); $('play').disabled = false; }
+    if (r && r.bestSan) { renderVerdict(r, true); $('play').disabled = false; $('watch').disabled = false; }
   }
 
   // --------------------------------------------------------------- editing
@@ -359,6 +364,7 @@
   function scheduleAnalyze() { clearTimeout(analyzeTimer); analyzeTimer = setTimeout(analyze, 350); }
 
   function onSquareClick(s) {
+    if (walk.running) return;
     if (state.tool !== null) {
       pushHistory();
       state.cells[s] = state.cells[s] === state.tool ? '' : state.tool;
@@ -408,9 +414,9 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { state.tool = null; state.selected = -1; for (const x of $('palette').querySelectorAll('button')) x.setAttribute('aria-pressed', 'false'); render(); }
   });
-  $('flip').addEventListener('click', () => { state.flipped = !state.flipped; render(); });
-  $('clear').addEventListener('click', () => { pushHistory(); state.cells.fill(''); state.side = 'w'; state.fullmove = 1; afterEdit(); });
-  $('start').addEventListener('click', () => { pushHistory(); state.result = null; loadFen(E.START_FEN); });
+  $('flip').addEventListener('click', () => { if (walk.running) return; state.flipped = !state.flipped; render(); writeHash(); });
+  $('clear').addEventListener('click', () => { if (walk.running) stopWalk(); pushHistory(); state.cells.fill(''); state.side = 'w'; state.fullmove = 1; afterEdit(); });
+  $('start').addEventListener('click', () => { if (walk.running) stopWalk(); pushHistory(); state.result = null; loadFen(E.START_FEN); });
   $('side-w').addEventListener('click', () => { if (state.side !== 'w') { pushHistory(); state.side = 'w'; afterEdit({ keepCastling: true }); } });
   $('side-b').addEventListener('click', () => { if (state.side !== 'b') { pushHistory(); state.side = 'b'; afterEdit({ keepCastling: true }); } });
   for (const id of ['c-K', 'c-Q', 'c-k', 'c-q']) $(id).addEventListener('change', () => { state.result = null; revalidate(); render(); scheduleAnalyze(); });
@@ -435,6 +441,159 @@
     state.result = null;
     loadFen(fen);
   });
+
+  // ------------------------------------------------------ line walkthrough
+  // Animates the principal variation on the board: each piece glides to its
+  // square with a caption, then the board returns to the analysed position.
+  const walk = { running: false, token: 0 };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function visualRect(s) {
+    const rank = s >> 3, file = s & 7;
+    const vf = state.flipped ? 7 - file : file, vr = state.flipped ? rank : 7 - rank;
+    return { x: vf * 12.5, y: vr * 12.5 };
+  }
+  function describeMove(pos, m, san) {
+    const U = E.util, C = E.constants;
+    const from = U.moveFrom(m), to = U.moveTo(m), flags = U.moveFlags(m), promo = U.movePromo(m);
+    const piece = pos.board[from], names = { 1: 'pawn', 2: 'knight', 3: 'bishop', 4: 'rook', 5: 'queen', 6: 'king' };
+    const who = pos.side === C.WHITE ? 'White' : 'Black';
+    const name = names[piece & 7];
+    let text;
+    if (flags & 8) text = who + ' castles ' + ((to & 7) === 6 ? 'kingside' : 'queenside');
+    else if (flags & 4) text = who + "'s pawn takes en passant";
+    else if (flags & 1) {
+      const victim = names[pos.board[to] & 7] || 'pawn';
+      text = who + "'s " + name + ' takes the ' + victim + ' on ' + U.algebraic(to);
+    } else text = who + "'s " + name + ' goes to ' + U.algebraic(to);
+    if (promo) text += ' and becomes a ' + names[promo];
+    if (san.endsWith('#')) text += '. Checkmate';
+    else if (san.endsWith('+')) text += ', with check';
+    return text;
+  }
+  async function watchLine() {
+    const r = state.result;
+    if (!r || !r.pvUci || !r.pvUci.length || !state.valid || !state.valid.ok) return;
+    if (walk.running) { stopWalk(); return; }
+    const token = ++walk.token;
+    walk.running = true;
+    const startFen = state.valid.fen, savedResult = r, savedFlip = state.flipped;
+    walk.saved = { fen: startFen, result: savedResult, flip: savedFlip };
+    $('watch').textContent = 'Stop';
+    $('play').disabled = true; $('analyze').disabled = true;
+    boardEl.parentElement.classList.add('playing');
+    const cap = $('caption');
+    const pos = new E.Position(startFen);
+    let num = pos.fullmove, white = pos.side === E.constants.WHITE;
+    const plies = r.pvUci.slice(0, 10);
+    try {
+      cap.innerHTML = 'Best move for ' + (white ? 'White' : 'Black') + ': <span>' + r.bestSan + '</span><small>Watch the line the engine expects</small>';
+      cap.classList.add('show');
+      await sleep(1100);
+      for (let i = 0; i < plies.length; i++) {
+        if (token !== walk.token) return;
+        const m = pos.uciToMove(plies[i]);
+        if (!m) break;
+        const san = r.pvSan[i] || pos.moveToSan(m);
+        const label = (white ? num + '. ' : num + '… ') + san;
+        cap.innerHTML = '<span>' + label + '</span><small>' + describeMove(pos, m, san) + '</small>';
+        await animateMove(pos, m, token);
+        if (token !== walk.token) return;
+        pos.make(m);
+        cellsFromPosition(pos);
+        state.side = pos.side === E.constants.WHITE ? 'w' : 'b';
+        renderQuiet();
+        markTrail(E.util.moveFrom(m), E.util.moveTo(m));
+        await sleep(i === 0 ? 1500 : 1100);
+        if (!white) num++;
+        white = !white;
+      }
+      if (token !== walk.token) return;
+      cap.innerHTML = '<span>Back to the position</span><small>Engine line shown from move one</small>';
+      await sleep(1300);
+    } finally {
+      if (token === walk.token) restoreAfterWalk(startFen, savedResult, savedFlip);
+    }
+  }
+  function markTrail(from, to) {
+    for (const d of squares) d.classList.remove('trail');
+    for (const d of squares) if ((d.dataset.sq | 0) === from || (d.dataset.sq | 0) === to) d.classList.add('trail');
+  }
+  function renderQuiet() {
+    // render without arrows or the analysis highlight
+    const saved = state.result; state.result = null;
+    const savedValid = state.valid; state.valid = null;
+    render();
+    state.result = saved; state.valid = savedValid;
+  }
+  function animateMove(pos, m, token) {
+    const U = E.util;
+    const from = U.moveFrom(m), to = U.moveTo(m), flags = U.moveFlags(m);
+    const jobs = [[from, to]];
+    if (flags & 8) { // castling: the rook glides too
+      const r = to >> 3;
+      if ((to & 7) === 6) jobs.push([r * 8 + 7, r * 8 + 5]); else jobs.push([r * 8, r * 8 + 3]);
+    }
+    let capturedSq = (flags & 1) ? to : -1;
+    if (flags & 4) capturedSq = to + (pos.side === E.constants.WHITE ? -8 : 8);
+    const wrap = $('boardwrap');
+    const ghosts = [];
+    for (const [f, t] of jobs) {
+      const fromEl = squares.find((d) => (d.dataset.sq | 0) === f);
+      const pieceEl = fromEl && fromEl.querySelector('.piece');
+      if (!pieceEl) continue;
+      const g = document.createElement('div');
+      g.className = 'ghost';
+      const p = pieceEl.cloneNode(true);
+      p.style.fontSize = getComputedStyle(pieceEl).fontSize;
+      g.appendChild(p);
+      const a = visualRect(f), b = visualRect(t);
+      g.style.left = a.x + '%'; g.style.top = a.y + '%';
+      g.style.transform = 'translate(0,0)';
+      wrap.appendChild(g);
+      pieceEl.style.visibility = 'hidden';
+      ghosts.push({ g, pieceEl, dx: (b.x - a.x) / 12.5, dy: (b.y - a.y) / 12.5 });
+    }
+    if (capturedSq >= 0) {
+      const el = squares.find((d) => (d.dataset.sq | 0) === capturedSq);
+      const pe = el && el.querySelector('.piece');
+      if (pe) pe.classList.add('fade');
+    }
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        for (const gh of ghosts) gh.g.style.transform = 'translate(' + (gh.dx * 100) + '%, ' + (gh.dy * 100) + '%)';
+        setTimeout(() => {
+          for (const gh of ghosts) { gh.g.remove(); gh.pieceEl.style.visibility = ''; }
+          resolve();
+        }, 740);
+      }));
+    });
+  }
+  function restoreAfterWalk(startFen, savedResult, savedFlip) {
+    walk.running = false;
+    $('caption').classList.remove('show');
+    boardEl.parentElement.classList.remove('playing');
+    for (const d of squares) d.classList.remove('trail');
+    for (const g of document.querySelectorAll('.ghost')) g.remove();
+    $('watch').textContent = 'Watch the line';
+    state.flipped = savedFlip;
+    const pos = new E.Position(startFen);
+    cellsFromPosition(pos);
+    state.side = pos.side === E.constants.WHITE ? 'w' : 'b';
+    state.halfmove = pos.halfmove; state.fullmove = pos.fullmove;
+    state.valid = E.validateFen(startFen);
+    state.result = savedResult;
+    render();
+    $('play').disabled = false; $('analyze').disabled = false; $('watch').disabled = false;
+  }
+  function stopWalk() {
+    if (!walk.running) return;
+    walk.token++;
+    // restore is handled by the running walk's finally via a fresh token check,
+    // so do it here explicitly with the saved position
+    const saved = walk.saved;
+    if (saved) restoreAfterWalk(saved.fen, saved.result, saved.flip);
+  }
+  $('watch').addEventListener('click', watchLine);
 
   // ------------------------------------------------------ picture reading
   let sample = null, visionReady = false, imageLimits = null;
@@ -562,6 +721,23 @@
   $('reread').addEventListener('click', () => { if (state.lastImage) readImage(state.lastImage, true); });
 
   // ------------------------------------------------------------------ boot
+  function readHash() {
+    const h = location.hash.replace(/^#/, '');
+    if (!h) return null;
+    const q = new URLSearchParams(h);
+    const fen = (q.get('fen') || '').trim();
+    if (!fen || !FEN_RE.test(fen)) return null;
+    return { fen: fen.split(/\s+/).length >= 2 ? fen : fen + ' w', flip: q.get('flip') === '1', play: q.get('play') === '1' };
+  }
+  function writeHash() {
+    if (!state.valid || !state.valid.ok) return;
+    const q = new URLSearchParams();
+    q.set('fen', state.valid.fen);
+    if (state.flipped) q.set('flip', '1');
+    try { history.replaceState(null, '', '#' + q.toString().replace(/%20/g, '+')); } catch (e) { /* ignore */ }
+  }
   buildBoard();
-  loadFen(SAMPLE_FEN);
+  const fromHash = readHash();
+  if (fromHash) { state.flipped = fromHash.flip; autoWatch = fromHash.play; loadFen(fromHash.fen); }
+  else { autoWatch = true; loadFen(SAMPLE_FEN); }
 })();
